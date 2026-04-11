@@ -1,30 +1,91 @@
-This is a Python command line client for relatively popular wiki hosting http://www.wikidot.com which lets you:
+A Python command line client for the wiki hosting platform [Wikidot](http://www.wikidot.com).
 
-* List all pages on a site
-* See all revisions of a page
-* Query page source
+Original work by [wdotcrawl's author](https://github.com/wdotcrawl) — thank you for building this!
 
-Most interestingly, it allows you to download the whole site as a Mercurial repository, with proper commit dates and comments!
+---
 
-##### Examples:
+#### What it does
 
-    crawl.py http://example.wikidot.com --dump ExampleRepo
-    crawl.py http://example.wikidot.com --log --page example-page
+- List all pages on a Wikidot site
+- View revision history and page source for any page
+- Download the entire site as a Git repository, with accurate commit dates, authors, and messages pulled from Wikidot's revision history
+- Incrementally update an existing dump — re-running the same command only fetches revisions newer than the last commit
 
-It uses internal Wikidot AJAX requests to do it's job. If you're from Wikidot, please don't break it. Thank you! We'll try to be nice and not put a load on your servers.
+---
 
-Downloading of large sites might take a while. If anything breaks, just restart the same command, it'll continue from where it crashed.
+#### Setup
 
-##### Useful links:
+Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
 
-Wikidot code (very old) which simplifies things a bit:
+```
+uv sync
+```
 
-* https://github.com/gabrys/wikidot/blob/master/php/modules/history/PageRevisionListModule.php
+---
 
-The descriptions for on-site modules are heavily correlated with AJAX ones:
+#### Usage
 
-* http://www.wikidot.com/doc-modules:listpages-module
+**Full dump** (first run):
 
-Someone else did Wikidot AJAX:
+```
+uv run python crawl.py http://example.wikidot.com --dump ./ExampleRepo
+```
 
-* https://github.com/kerel-fs/ogn-rdb/blob/master/wikidotcrawler.py
+**Incremental update** (subsequent runs — same command):
+
+```
+uv run python crawl.py http://example.wikidot.com --dump ./ExampleRepo
+```
+
+The script detects the existing `.git` repository, reads the last commit timestamp, and only fetches revisions newer than that point.
+
+**Other queries:**
+
+```
+# List all pages
+uv run python crawl.py http://example.wikidot.com --list-pages
+
+# View a page's revision log
+uv run python crawl.py http://example.wikidot.com --log --page example-page
+
+# Print a page's source
+uv run python crawl.py http://example.wikidot.com --source --page example-page
+```
+
+**Options:**
+
+| Flag | Description |
+|------|-------------|
+| `--dump DIR` | Download site history to DIR as a Git repo |
+| `--page NAME` | Target a single page (used with --source, --log, --dump) |
+| `--depth N` | Limit to last N revisions per page (default: 10000) |
+| `--revids` | Store Wikidot revision IDs in `.revid` file with each commit |
+| `--delay MS` | Delay between Wikidot requests in milliseconds (default: 200) |
+| `--debug` | Print debug info |
+
+---
+
+#### Automation
+
+To keep a dump up to date, run on a schedule. Example cron entry (daily at 3am):
+
+```
+0 3 * * * cd /path/to/wdotcrawl && uv run python crawl.py http://example.wikidot.com --dump ./ExampleRepo >> ./sync.log 2>&1
+```
+
+---
+
+#### Changes from original
+
+- Ported from Python 2 to Python 3
+- Replaced Mercurial repository backend with Git
+- Added incremental update support — re-running syncs only new revisions
+- Cross-platform paths (was Windows-only)
+
+---
+
+#### Useful links
+
+- [Wikidot ListPages module](http://www.wikidot.com/doc-modules:listpages-module)
+- [Wikidot source (old)](https://github.com/gabrys/wikidot/blob/master/php/modules/history/PageRevisionListModule.php)
+- [Similar project](https://github.com/kerel-fs/ogn-rdb/blob/master/wikidotcrawler.py)
