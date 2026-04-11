@@ -33,10 +33,13 @@ class RepoMaintainer:
 		self.last_parents = {}		# Tracks page parent names: name atm -> last parent in repo
 
 
-	def _hg(self, *args):
-		result = subprocess.run(['hg'] + list(args), cwd=self.path, capture_output=True, text=True)
+	def _git(self, *args, extra_env=None):
+		env = os.environ.copy()
+		if extra_env:
+			env.update(extra_env)
+		result = subprocess.run(['git'] + list(args), cwd=self.path, capture_output=True, text=True, env=env)
 		if result.returncode != 0:
-			raise Exception('hg error: ' + result.stderr)
+			raise Exception('git error: ' + result.stderr)
 		return result.stdout
 
 	def _wrevs_path(self):
@@ -139,14 +142,15 @@ class RepoMaintainer:
 
 		else: # create a new repository (will fail if one exists)
 			print("Initializing repository...")
-			self._hg('init')
+			self._git('init')
+			self._git('checkout', '-b', 'main')
 			self.rev_no = 0
 
 			if self.storeRevIds:
-				# Add revision id file to the new repo
+				# Add revision id file to track per-commit wikidot rev id
 				fname = os.path.join(self.path, '.revid')
 				codecs.open(fname, "w", "UTF-8").close()
-				self._hg('add', fname)
+				self._git('add', '.revid')
 
 
 	#
@@ -162,12 +166,11 @@ class RepoMaintainer:
 		# Page title and unix_name changes are only available through another request:
 		details = self.wd.get_revision_version(rev['rev_id'])
 
-		# Store revision_id for last commit
-		# Without this, empty commits (e.g. file uploads) will be skipped by Mercurial
+		# Store revision_id for last commit so empty commits (e.g. file uploads) still produce a change.
+		revid_fname = os.path.join(self.path, '.revid')
 		if self.storeRevIds:
-			fname = os.path.join(self.path, '.revid')
-			with codecs.open(fname, "w", "UTF-8") as outp:
-				outp.write(rev['rev_id']) # rev_ids are unique amongst all pages, and only one page changes in each commit anyway
+			with codecs.open(revid_fname, "w", "UTF-8") as outp:
+				outp.write(rev['rev_id'])
 
 		unixname = rev['page_name']
 		rev_unixname = details['unixname'] # may be different in revision than atm
@@ -183,13 +186,11 @@ class RepoMaintainer:
 			parent_unixname = self.last_parents[unixname] if unixname in self.last_parents else None
 		# There are also problems when parent page gets renamed -- see updateChildren
 
-		# If the page is tracked and its name just changed, tell HG
+		# If the page is tracked and its name just changed, tell git
 		rename = (unixname in self.last_names) and (self.last_names[unixname] != rev_unixname)
 		if rename:
-			self.updateChildren(self.last_names[unixname], rev_unixname) # Update children which reference us -- see comments there
-			old_fname = os.path.join(self.path, str(self.last_names[unixname])+'.txt')
-			new_fname = os.path.join(self.path, str(rev_unixname)+'.txt')
-			self._hg('rename', old_fname, new_fname)
+			self.updateChildren(self.last_names[unixname], rev_unixname)
+			self._git('mv', str(self.last_names[unixname])+'.txt', str(rev_unixname)+'.txt')
 
 		# Output contents
 		fname = os.path.join(self.path, rev_unixname+'.txt')
@@ -200,9 +201,10 @@ class RepoMaintainer:
 				outp.write('parent:'+parent_unixname+'\n')
 			outp.write(source)
 
-		# Add new page
-		if unixname not in self.last_names: # never before seen
-			self._hg('add', fname)
+		# Stage the page file (new or modified) and .revid
+		self._git('add', rev_unixname+'.txt')
+		if self.storeRevIds:
+			self._git('add', '.revid')
 
 		self.last_names[unixname] = rev_unixname
 
@@ -211,17 +213,21 @@ class RepoMaintainer:
 			commit_msg = rev_unixname + ': ' + rev['comment']
 		else:
 			commit_msg = rev_unixname
-		if rev['date']:
-			commit_date = str(rev['date']) + ' 0'
-		else:
-			commit_date = None
+
+		user = rev['user'] or 'unknown'
+		author = '{} <{}@wikidot.invalid>'.format(user, user)
 
 		print("Commiting: "+str(self.rev_no)+'. '+commit_msg)
 
-		commit_args = ['commit', '-m', commit_msg, '-u', rev['user'] or 'unknown']
-		if commit_date:
-			commit_args += ['-d', commit_date]
-		self._hg(*commit_args)
+		# Set both author and committer date via env so history timestamps are accurate
+		extra_env = {}
+		if rev['date']:
+			ts = '@{}'.format(rev['date'])
+			extra_env['GIT_AUTHOR_DATE'] = ts
+			extra_env['GIT_COMMITTER_DATE'] = ts
+
+		self._git('commit', '--allow-empty', '-m', commit_msg, '--author', author,
+		          extra_env=extra_env)
 
 		self.rev_no += 1
 
