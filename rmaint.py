@@ -67,12 +67,16 @@ class RepoMaintainer:
 	# If there exists a cached revision list at the repository destination,
 	# it is loaded and no requests are made.
 	#
-	def buildRevisionList(self, pages=None, depth=10000):
-		if os.path.isfile(self._wrevs_path()):
+	def buildRevisionList(self, pages=None, depth=10000, since_time=0):
+		# For incremental runs skip the cache — it belongs to a prior full dump
+		if since_time == 0 and os.path.isfile(self._wrevs_path()):
 			print("Loading cached revision list...")
 			self.loadWRevs()
 		else:
-			print("Building revision list...")
+			if since_time > 0:
+				print("Building incremental revision list (since {})...".format(since_time))
+			else:
+				print("Building revision list...")
 			if not pages:
 				pages = self.wd.list_pages(10000)
 			self.wrevs = []
@@ -81,8 +85,9 @@ class RepoMaintainer:
 				page_id = self.wd.get_page_id(page)
 				print("ID: "+str(page_id))
 				revs = self.wd.get_revisions(page_id, depth)
-				print("Revisions: "+str(len(revs)))
-				for rev in revs:
+				new_revs = [r for r in revs if r['date'] > since_time]
+				print("Revisions: "+str(len(new_revs))+" new ("+str(len(revs))+" total)")
+				for rev in new_revs:
 					self.wrevs.append({
 					  'page_id' : page_id,
 					  'page_name' : page, # name atm, not at revision time
@@ -136,11 +141,23 @@ class RepoMaintainer:
 		self.last_names = {} # Tracks page renames: name atm -> last name in repo
 		self.last_parents = {} # Tracks page parent names: name atm -> last parent in repo
 
+		repo_exists = os.path.isdir(os.path.join(self.path, '.git'))
+
 		if os.path.isfile(self._wstate_path()):
 			print("Continuing from aborted dump state...")
 			self.loadState()
 
-		else: # create a new repository (will fail if one exists)
+		elif repo_exists:
+			# Incremental update: populate last_names from existing .txt files
+			# so renames against already-committed pages are detected correctly
+			print("Updating existing repository...")
+			self.rev_no = 0
+			for entry in os.listdir(self.path):
+				if entry.endswith('.txt'):
+					name = entry[:-4]
+					self.last_names[name] = name
+
+		else:
 			print("Initializing repository...")
 			self._git('init')
 			self._git('checkout', '-b', 'main')

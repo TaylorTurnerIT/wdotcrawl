@@ -4,13 +4,12 @@ import locale
 import codecs
 import errno
 import os
+import subprocess
 from wikidot import Wikidot
 from rmaint import RepoMaintainer
 
 # TODO: Files.
 # TODO: Forum and comment pages.
-# TODO: Ability to download new transactions since last dump.
-#   We'll probably check the last revision time, then query all transactions and select those with greater revision time (not equal, since we would have downloaded equals at the previous dump)
 
 rawStdout = sys.stdout
 rawStderr = sys.stderr
@@ -105,15 +104,30 @@ elif args.dump:
 	print("Downloading pages to "+args.dump)
 	force_dirs(args.dump)
 
+	# Detect incremental update: read last commit timestamp from existing repo
+	since_time = 0
+	if os.path.isdir(os.path.join(args.dump, '.git')):
+		result = subprocess.run(
+			['git', 'log', '-1', '--format=%at'],
+			cwd=args.dump, capture_output=True, text=True
+		)
+		if result.returncode == 0 and result.stdout.strip():
+			since_time = int(result.stdout.strip())
+			print("Incremental update, last commit: "+str(since_time))
+
 	rm = RepoMaintainer(wd, args.dump)
 	rm.debug = args.debug
 	rm.storeRevIds = args.revids
-	rm.buildRevisionList([args.page] if args.page else None, args.depth)
-	rm.openRepo()
+	rm.buildRevisionList([args.page] if args.page else None, args.depth, since_time=since_time)
 
-	print("Downloading revisions...")
-	while rm.commitNext():
-		pass
+	if not rm.wrevs:
+		print("Already up to date.")
+	else:
+		rm.openRepo()
 
-	rm.cleanup()
-	print("Done.")
+		print("Downloading revisions...")
+		while rm.commitNext():
+			pass
+
+		rm.cleanup()
+		print("Done.")
