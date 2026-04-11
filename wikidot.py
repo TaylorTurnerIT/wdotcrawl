@@ -11,13 +11,13 @@ class Wikidot:
 		self.site = site		# Wikidot site to query
 		self.delay = 200		# Delay between requests in msec
 		self.debug = False		# Print debug messages
-		self.next_timeslot = time.clock()	# Can call immediately
+		self.next_timeslot = time.time()	# Can call immediately
 
 
 	# To honor usage rules, we wait for self.delay between requests.
 	# Low-level query functions call this before every request to Wikidot./
 	def _wait_request_slot(self):
-		tm = time.clock()
+		tm = time.time()
 		if self.next_timeslot - tm > 0:
 			time.sleep(self.next_timeslot - tm)
 		self.next_timeslot = tm + self.delay / 1000
@@ -30,8 +30,8 @@ class Wikidot:
 		params['wikidot_token7'] = token
 	
 		if self.debug:
-			print params
-			print cookies
+			print(params)
+			print(cookies)
 
 		self._wait_request_slot()
 		req = requests.request('POST', self.site+'/ajax-module-connector.php', data=params, cookies=cookies)
@@ -189,5 +189,5 @@ class Wikidot:
 		  'rev_id': rev_id,
 		  'unixname': unixname,
 		  'title': res[1],
-		  'content': unicode(soup), # only content remains
+		  'content': str(soup), # only content remains
 		}

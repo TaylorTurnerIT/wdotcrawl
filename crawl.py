@@ -2,6 +2,7 @@ import argparse
 import sys
 import locale
 import codecs
+import errno
 import os
 from wikidot import Wikidot
 from rmaint import RepoMaintainer
@@ -13,8 +14,8 @@ from rmaint import RepoMaintainer
 
 rawStdout = sys.stdout
 rawStderr = sys.stderr
-sys.stdout = codecs.getwriter(locale.getpreferredencoding())(sys.stdout, 'xmlcharrefreplace')
-sys.stderr = codecs.getwriter(locale.getpreferredencoding())(sys.stderr, 'xmlcharrefreplace')
+sys.stdout = codecs.getwriter(locale.getpreferredencoding())(sys.stdout.buffer, 'xmlcharrefreplace')
+sys.stderr = codecs.getwriter(locale.getpreferredencoding())(sys.stderr.buffer, 'xmlcharrefreplace')
 
 parser = argparse.ArgumentParser(description='Queries Wikidot')
 parser.add_argument('site', help='URL of Wikidot site')
@@ -46,73 +47,73 @@ def force_dirs(path):
     try:
         os.makedirs(path)
     except OSError as exception:
-        if exception.errno != os.errno.EEXIST:
+        if exception.errno != errno.EEXIST:
             raise
 
 if args.list_pages_raw:
-	print wd.list_pages_raw(args.depth)
+	print(wd.list_pages_raw(args.depth))
 
 elif args.list_pages:
 	for page in wd.list_pages(args.depth):
-		print page
+		print(page)
 
 elif args.source:
 	if not args.page:
-		raise "Please specify --page for --source."
-	
+		raise Exception("Please specify --page for --source.")
+
 	page_id = wd.get_page_id(args.page)
 	if not page_id:
-		raise "Page not found: "+args.page
-	
+		raise Exception("Page not found: "+args.page)
+
 	revs = wd.get_revisions(page_id, 1) # last revision
-	print wd.get_revision_source(revs[0]['id'])
+	print(wd.get_revision_source(revs[0]['id']))
 
 elif args.content:
 	if not args.page:
-		raise "Please specify --page for --source."
-	
+		raise Exception("Please specify --page for --source.")
+
 	page_id = wd.get_page_id(args.page)
 	if not page_id:
-		raise "Page not found: "+args.page
-	
+		raise Exception("Page not found: "+args.page)
+
 	revs = wd.get_revisions(page_id, 1) # last revision
-	print wd.get_revision_version(revs[0]['id'])
+	print(wd.get_revision_version(revs[0]['id']))
 
 elif args.log_raw:
 	if not args.page:
-		raise "Please specify --page for --log."
+		raise Exception("Please specify --page for --log.")
 
 	page_id = wd.get_page_id(args.page)
 	if not page_id:
-		raise "Page not found: "+args.page
+		raise Exception("Page not found: "+args.page)
 
-	print wd.get_revisions_raw(page_id, args.depth)
+	print(wd.get_revisions_raw(page_id, args.depth))
 
 
 elif args.log:
 	if not args.page:
-		raise "Please specify --page for --log."
+		raise Exception("Please specify --page for --log.")
 
 	page_id = wd.get_page_id(args.page)
 	if not page_id:
-		raise "Page not found: "+args.page
+		raise Exception("Page not found: "+args.page)
 	for rev in wd.get_revisions(page_id, args.depth):
-		print unicode(rev)
+		print(str(rev))
 
 
 elif args.dump:
-	print "Downloading pages to "+args.dump
+	print("Downloading pages to "+args.dump)
 	force_dirs(args.dump)
-	
+
 	rm = RepoMaintainer(wd, args.dump)
 	rm.debug = args.debug
 	rm.storeRevIds = args.revids
 	rm.buildRevisionList([args.page] if args.page else None, args.depth)
 	rm.openRepo()
-	
-	print "Downloading revisions..."
+
+	print("Downloading revisions...")
 	while rm.commitNext():
 		pass
-	
+
 	rm.cleanup()
-	print "Done."
+	print("Done.")
