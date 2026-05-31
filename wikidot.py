@@ -2,6 +2,8 @@ import requests
 import random
 from bs4 import BeautifulSoup
 import time
+from datetime import datetime
+import xml.etree.ElementTree as ET
 
 # Implements various queries to Wikidot engine through its AJAX facilities
 
@@ -89,6 +91,53 @@ class Wikidot:
 				break
 			page_num += 1
 		return pages
+
+	def get_pages_from_sitemap(self, since_time):
+		try:
+			req = requests.get(self.site + '/sitemap.xml', timeout=10)
+			if req.status_code != 200:
+				return None
+			
+			root = ET.fromstring(req.text)
+			namespace = {'ns': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
+			pages = set()
+			
+			for url in root.findall('ns:url', namespace):
+				loc = url.find('ns:loc', namespace)
+				lastmod = url.find('ns:lastmod', namespace)
+				
+				if loc is not None and loc.text:
+					page_url = loc.text
+					
+					# Ignore the root url itself
+					if page_url.rstrip('/') == self.site.rstrip('/'):
+						continue
+						
+					# Extract page name (everything after the site url)
+					if page_url.startswith(self.site):
+						page_name = page_url[len(self.site):].lstrip('/')
+					else:
+						page_name = page_url.strip('/').split('/')[-1]
+					
+					if not page_name:
+						continue
+						
+					# Check lastmod against since_time
+					if lastmod is not None and lastmod.text and since_time > 0:
+						try:
+							dt = datetime.fromisoformat(lastmod.text)
+							if dt.timestamp() <= since_time:
+								continue  # Unchanged, skip
+						except ValueError:
+							pass
+					
+					pages.add(page_name)
+			
+			return list(pages)
+		except Exception as e:
+			if self.debug:
+				print("Sitemap error: ", e)
+			return None
 
 
 	# Retrieves internal page_id by page unix_name.

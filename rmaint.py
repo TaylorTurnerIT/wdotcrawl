@@ -78,7 +78,15 @@ class RepoMaintainer:
 			else:
 				print("Building revision list...")
 			if not pages:
-				pages = self.wd.list_pages(10000)
+				if since_time > 0:
+					print("Attempting to fetch sitemap.xml for optimization...")
+					sitemap_pages = self.wd.get_pages_from_sitemap(since_time)
+					if sitemap_pages is not None:
+						pages = sitemap_pages
+						print("Found {} changed pages from sitemap.".format(len(pages)))
+				
+				if not pages:
+					pages = self.wd.list_pages(10000)
 			self.wrevs = []
 			for page in pages:
 				print("Querying page: "+page)
