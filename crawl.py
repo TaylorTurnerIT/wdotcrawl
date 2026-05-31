@@ -93,6 +93,10 @@ def _log_footer():
 		datetime.datetime.now().isoformat(timespec='seconds'),
 		str(elapsed).split('.')[0],
 	))
+	# Restore underlying streams before closing log_file so interpreter
+	# teardown doesn't flush the Tee into an already-closed file.
+	sys.stdout = sys.stdout.stream
+	sys.stderr = sys.stderr.stream
 	log_file.flush()
 	log_file.close()
 
