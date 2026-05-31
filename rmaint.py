@@ -169,10 +169,12 @@ class RepoMaintainer:
 			# so renames against already-committed pages are detected correctly
 			print("Updating existing repository...")
 			self.rev_no = 0
-			for entry in os.listdir(self.path):
-				if entry.endswith('.txt'):
-					name = entry[:-4]
-					self.last_names[name] = name
+			pages_dir = os.path.join(self.path, 'pages')
+			if os.path.isdir(pages_dir):
+				for entry in os.listdir(pages_dir):
+					if entry.endswith('.txt'):
+						name = entry[:-4]
+						self.last_names[name] = name
 
 		else:
 			print("Initializing repository...")
@@ -224,10 +226,11 @@ class RepoMaintainer:
 		rename = (unixname in self.last_names) and (self.last_names[unixname] != rev_unixname)
 		if rename:
 			self.updateChildren(self.last_names[unixname], rev_unixname)
-			self._git('mv', str(self.last_names[unixname])+'.txt', str(rev_unixname)+'.txt')
+			self._git('mv', 'pages/' + str(self.last_names[unixname])+'.txt', 'pages/' + str(rev_unixname)+'.txt')
 
 		# Output contents
-		fname = os.path.join(self.path, rev_unixname+'.txt')
+		fname = os.path.join(self.path, 'pages', rev_unixname+'.txt')
+		os.makedirs(os.path.dirname(fname), exist_ok=True)
 		with codecs.open(fname, "w", "UTF-8") as outp:
 			if details['title']:
 				outp.write('title:'+details['title']+'\n')
@@ -236,7 +239,7 @@ class RepoMaintainer:
 			outp.write(source)
 
 		# Stage the page file (new or modified) and .revid
-		self._git('add', rev_unixname+'.txt')
+		self._git('add', 'pages/' + rev_unixname+'.txt')
 		if self.storeRevIds:
 			self._git('add', '.revid')
 
@@ -281,7 +284,7 @@ class RepoMaintainer:
 	# Processes a page file and updates "parent:..." string to reflect a change in parent's unixname.
 	#
 	def updateParentField(self, child_unixname, parent_oldunixname, parent_newunixname):
-		child_path = os.path.join(self.path, child_unixname+'.txt')
+		child_path = os.path.join(self.path, 'pages', child_unixname+'.txt')
 		with codecs.open(child_path, "r", "UTF-8") as f:
 			content = f.readlines()
 		idx = content.index('parent:'+parent_oldunixname+'\n')
