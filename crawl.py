@@ -4,6 +4,9 @@ import locale
 import codecs
 import errno
 import os
+import re
+import atexit
+import datetime
 import subprocess
 from wikidot import Wikidot
 from rmaint import RepoMaintainer
@@ -36,6 +39,76 @@ parser.add_argument('--debug', action='store_true', help='Print debug info')
 parser.add_argument('--delay', type=int, default='200', help='Delay between consequent calls to Wikidot')
 args = parser.parse_args()
 
+# ─── Logging setup ───────────────────────────────────────────────────────────
+
+class Tee:
+	"""Writes to both the original stream and a log file simultaneously."""
+	def __init__(self, stream, logfile):
+		self.stream = stream
+		self.logfile = logfile
+
+	def write(self, data):
+		self.stream.write(data)
+		if isinstance(data, bytes):
+			data = data.decode('utf-8', 'replace')
+		self.logfile.write(data)
+		self.logfile.flush()
+
+	def flush(self):
+		self.stream.flush()
+		self.logfile.flush()
+
+	def __getattr__(self, name):
+		return getattr(self.stream, name)
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOGS_DIR = os.path.join(SCRIPT_DIR, 'logs')
+os.makedirs(LOGS_DIR, exist_ok=True)
+
+site_slug = re.sub(r'https?://', '', args.site).split('.')[0]
+if args.dump:
+	mode_label = 'dump-' + os.path.basename(os.path.abspath(args.dump))
+elif args.list_pages:
+	mode_label = 'list-pages'
+elif args.source:
+	mode_label = 'source-' + (args.page or 'unknown')
+elif args.log:
+	mode_label = 'log-' + (args.page or 'unknown')
+else:
+	mode_label = 'query'
+
+run_start = datetime.datetime.now()
+log_filename = '{}-{}-{}.log'.format(
+	site_slug, mode_label, run_start.strftime('%Y%m%d-%H%M%S')
+)
+log_path = os.path.join(LOGS_DIR, log_filename)
+log_file = open(log_path, 'w', encoding='utf-8')
+
+sys.stdout = Tee(sys.stdout, log_file)
+sys.stderr = Tee(sys.stderr, log_file)
+
+def _log_footer():
+	elapsed = datetime.datetime.now() - run_start
+	print('\n=== finished {} | elapsed {} ==='.format(
+		datetime.datetime.now().isoformat(timespec='seconds'),
+		str(elapsed).split('.')[0],
+	))
+	log_file.flush()
+	log_file.close()
+
+atexit.register(_log_footer)
+
+print('=== crawl.py started {} ==='.format(run_start.isoformat(timespec='seconds')))
+print('site:  {}'.format(args.site))
+print('depth: {}'.format(args.depth))
+if args.dump:
+	print('dump:  {}'.format(args.dump))
+if args.page:
+	print('page:  {}'.format(args.page))
+print('log:   {}'.format(log_path))
+print()
+
+# ─── Main ─────────────────────────────────────────────────────────────────────
 
 wd = Wikidot(args.site)
 wd.debug = args.debug
@@ -43,11 +116,11 @@ wd.delay = args.delay
 
 
 def force_dirs(path):
-    try:
-        os.makedirs(path)
-    except OSError as exception:
-        if exception.errno != errno.EEXIST:
-            raise
+	try:
+		os.makedirs(path)
+	except OSError as exception:
+		if exception.errno != errno.EEXIST:
+			raise
 
 if args.list_pages_raw:
 	print(wd.list_pages_raw(args.depth))

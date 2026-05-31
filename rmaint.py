@@ -225,8 +225,13 @@ class RepoMaintainer:
 		# If the page is tracked and its name just changed, tell git
 		rename = (unixname in self.last_names) and (self.last_names[unixname] != rev_unixname)
 		if rename:
-			self.updateChildren(self.last_names[unixname], rev_unixname)
-			self._git('mv', 'pages/' + str(self.last_names[unixname])+'.txt', 'pages/' + str(rev_unixname)+'.txt')
+			old_path = os.path.join(self.path, 'pages', str(self.last_names[unixname])+'.txt')
+			if os.path.isfile(old_path):
+				self.updateChildren(self.last_names[unixname], rev_unixname)
+				self._git('mv', 'pages/' + str(self.last_names[unixname])+'.txt', 'pages/' + str(rev_unixname)+'.txt')
+			else:
+				print("  [WARN] Rename source missing, writing fresh: pages/{}.txt -> pages/{}.txt".format(
+					self.last_names[unixname], rev_unixname))
 
 		# Output contents
 		fname = os.path.join(self.path, 'pages', rev_unixname+'.txt')
