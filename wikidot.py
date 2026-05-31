@@ -10,7 +10,7 @@ class Wikidot:
 	def __init__(self, site):
 		self.site = site		# Wikidot site to query
 		self.delay = 200		# Delay between requests in msec
-		self.debug = False		# Print debug messages
+		self.debug = True		# Print debug messages
 		self.next_timeslot = time.time()	# Can call immediately
 
 
@@ -48,27 +48,46 @@ class Wikidot:
 
 	# List all pages for the site.
 
-	# Raw version
+	# Raw version — fetches a single page of results (Wikidot caps perPage at 250).
 	# For the supported formats (module_body) see:
 	# See https://github.com/gabrys/wikidot/blob/master/php/modules/list/ListPagesModule.php
-	def list_pages_raw(self, limit):
+	def list_pages_raw(self, limit, page=1):
+		per_page = min(limit, 250) if limit else 250
 		res = self.query({
 		  'moduleName': 'list/ListPagesModule',
-		  'limit': limit if limit else '10000',
-		  'perPage': limit if limit else '10000',
+		  'limit': limit if limit else '250',
+		  'perPage': per_page,
+		  'p': page,
 		  'module_body': '%%page_unix_name%%',
 		  'separate': 'false',
 		  'order': 'dateCreatedDesc',  # This way limit makes sense. This is also the default
 		})
 		return res
 
-	# Client version
+	# Client version — paginates automatically to return all pages.
+	# Wikidot caps perPage at 250, so we paginate until we get a partial page.
 	def list_pages(self, limit):
-		raw = self.list_pages_raw(limit).replace('<br/>',"\n")
-		soup = BeautifulSoup(raw, 'html.parser')
 		pages = []
-		for entry in soup.div.p.text.split('\n'):
-			pages.append(entry)
+		page_num = 1
+		per_page = 250
+		while True:
+			raw = self.list_pages_raw(limit, page=page_num).replace('<br/>',"\n")
+			soup = BeautifulSoup(raw, 'html.parser')
+			first_div = soup.find('div')
+			p_tag = first_div.find('p') if first_div else None
+			if p_tag is None:
+				break
+			batch = [e for e in p_tag.text.split('\n') if e.strip()]
+			if not batch:
+				break
+			pages.extend(batch)
+			if limit and len(pages) >= limit:
+				pages = pages[:limit]
+				break
+			# A partial page means we've reached the end
+			if len(batch) < per_page:
+				break
+			page_num += 1
 		return pages
 
 

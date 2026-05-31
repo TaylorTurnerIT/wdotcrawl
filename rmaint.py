@@ -117,10 +117,14 @@ class RepoMaintainer:
 	# Saves and loads operational state from file
 	#
 	def saveState(self):
-		with open(self._wstate_path(), 'wb') as fp:
+		# Write to a temp file then atomically rename so a crash mid-write
+		# never leaves a partial/corrupt .wstate.
+		tmp = self._wstate_path() + '.tmp'
+		with open(tmp, 'wb') as fp:
 			pickle.dump(self.rev_no, fp)
 			pickle.dump(self.last_names, fp)
 			pickle.dump(self.last_parents, fp)
+		os.replace(tmp, self._wstate_path())
 
 	def loadState(self):
 		with open(self._wstate_path(), 'rb') as fp:
@@ -142,6 +146,11 @@ class RepoMaintainer:
 		self.last_parents = {} # Tracks page parent names: name atm -> last parent in repo
 
 		repo_exists = os.path.isdir(os.path.join(self.path, '.git'))
+
+		# Clean up any leftover temp file from a previous crash during saveState
+		tmp = self._wstate_path() + '.tmp'
+		if os.path.isfile(tmp):
+			os.remove(tmp)
 
 		if os.path.isfile(self._wstate_path()):
 			print("Continuing from aborted dump state...")
