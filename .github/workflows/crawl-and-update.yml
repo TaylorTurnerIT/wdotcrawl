@@ -42,6 +42,21 @@ jobs:
             --dump ./spheresofpower-repo \
             --delay 300
 
+      - name: Commit page ID cache
+        run: |
+          cd spheresofpower-repo
+
+          # Commit page_ids.json if it was created/updated (cache for faster future runs)
+          if [ -f page_ids.json ] && ! git diff --quiet page_ids.json 2>/dev/null; then
+            git add page_ids.json
+            git commit -m "Update page ID cache" || true
+          elif [ -f page_ids.json ] && git ls-files --error-unmatch page_ids.json >/dev/null 2>&1; then
+            : # Already tracked and unchanged
+          elif [ -f page_ids.json ]; then
+            git add page_ids.json
+            git commit -m "Add page ID cache" || true
+          fi
+
       - name: Push changes to archive repo
         run: |
           cd spheresofpower-repo
