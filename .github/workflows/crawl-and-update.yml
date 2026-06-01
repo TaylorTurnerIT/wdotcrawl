@@ -1,0 +1,60 @@
+name: Crawl Spheres Wiki & Update Archive
+
+on:
+  schedule:
+    # Run daily at 6:00 AM UTC
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    # Allow manual trigger from the Actions tab
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout crawler code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Clone archive repo
+        run: |
+          git clone \
+            "https://x-access-token:${ARCHIVE_REPO_PAT}@github.com/TaylorTurnerIT/spheresofpower-wikidot-archive.git" \
+            spheresofpower-repo
+        env:
+          ARCHIVE_REPO_PAT: ${{ secrets.ARCHIVE_REPO_PAT }}
+
+      - name: Run crawler (incremental dump)
+        run: |
+          uv run python crawl.py \
+            http://spheresofpower.wikidot.com \
+            --dump ./spheresofpower-repo \
+            --delay 300
+
+      - name: Push changes to archive repo
+        run: |
+          cd spheresofpower-repo
+
+          # Check if there are new commits to push
+          if [ "$(git rev-list --count origin/main..HEAD)" -gt 0 ]; then
+            echo "Pushing $(git rev-list --count origin/main..HEAD) new commits..."
+            git push \
+              "https://x-access-token:${ARCHIVE_REPO_PAT}@github.com/TaylorTurnerIT/spheresofpower-wikidot-archive.git" \
+              main
+            echo "Push complete!"
+          else
+            echo "Already up to date — nothing to push."
+          fi
+        env:
+          ARCHIVE_REPO_PAT: ${{ secrets.ARCHIVE_REPO_PAT }}
