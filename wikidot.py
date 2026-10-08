@@ -4,8 +4,13 @@ from bs4 import BeautifulSoup
 import time
 from datetime import datetime
 import xml.etree.ElementTree as ET
+from urllib.parse import urlsplit
 
 # Implements various queries to Wikidot engine through its AJAX facilities
+
+
+class WikidotError(RuntimeError):
+	"""An HTTP or AJAX failure returned by Wikidot."""
 
 
 class Wikidot:
@@ -30,18 +35,26 @@ class Wikidot:
 		token = "".join(random.choice('abcdefghijklmnopqrstuvwxyz0123456789') for i in range(8))
 		cookies = {"wikidot_token7": token}
 		params['wikidot_token7'] = token
-	
+
 		if self.debug:
 			print(params)
 			print(cookies)
 
 		self._wait_request_slot()
 		req = requests.request('POST', self.site+'/ajax-module-connector.php', data=params, cookies=cookies)
-		json = req.json()
-		if json['status'] == 'ok':
+		context = '{} (page_id={}, revision_id={})'.format(
+			params.get('moduleName'), params.get('page_id'), params.get('revision_id'))
+		try:
+			req.raise_for_status()
+			json = req.json()
+		except (requests.RequestException, ValueError) as exc:
+			raise WikidotError('Wikidot {}: HTTP {}; response: {}'.format(
+				context, req.status_code, req.text[:2000])) from exc
+		if isinstance(json, dict) and json.get('status') == 'ok':
 			return json['body'], (json['title'] if 'title' in json else '')
 		else:
-			raise req.text
+			raise WikidotError('Wikidot {}: HTTP {}; response: {}'.format(
+				context, req.status_code, req.text[:2000]))
 
 	# Same but only returns the body, most responses don't have titles
 	def query(self, params):
@@ -97,31 +110,29 @@ class Wikidot:
 			req = requests.get(self.site + '/sitemap.xml', timeout=10)
 			if req.status_code != 200:
 				return None
-			
+
 			root = ET.fromstring(req.text)
 			namespace = {'ns': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
 			pages = set()
-			
+
 			for url in root.findall('ns:url', namespace):
 				loc = url.find('ns:loc', namespace)
 				lastmod = url.find('ns:lastmod', namespace)
-				
+
 				if loc is not None and loc.text:
-					page_url = loc.text
-					
-					# Ignore the root url itself
-					if page_url.rstrip('/') == self.site.rstrip('/'):
+					# Compare hosts independently of HTTP/HTTPS. Never turn a
+					# foreign URL or the site root into a page name.
+					page_url = urlsplit(loc.text.strip())
+					site_url = urlsplit(self.site)
+					if (page_url.scheme not in ('http', 'https')
+						or page_url.hostname != site_url.hostname
+						or page_url.username is not None
+						or page_url.port not in (None, 80 if page_url.scheme == 'http' else 443)):
 						continue
-						
-					# Extract page name (everything after the site url)
-					if page_url.startswith(self.site):
-						page_name = page_url[len(self.site):].lstrip('/')
-					else:
-						page_name = page_url.strip('/').split('/')[-1]
-					
+					page_name = page_url.path.strip('/')
 					if not page_name:
 						continue
-						
+
 					# Check lastmod against since_time
 					if lastmod is not None and lastmod.text and since_time > 0:
 						try:
@@ -130,10 +141,10 @@ class Wikidot:
 								continue  # Unchanged, skip
 						except ValueError:
 							pass
-					
+
 					pages.add(page_name)
-			
-			return list(pages)
+
+			return sorted(pages)
 		except Exception as e:
 			if self.debug:
 				print("Sitemap error: ", e)
@@ -147,7 +158,12 @@ class Wikidot:
 		# The only freaking way to get page ID is to load the page! Wikidot!
 		self._wait_request_slot()
 		req = requests.request('GET', self.site+'/'+page_unix_name)
+		if req.status_code == 404:
+			return None
+		req.raise_for_status()
 		soup = BeautifulSoup(req.text, 'html.parser')
+		if soup.head is None:
+			raise WikidotError('Page {} returned no HTML head (HTTP {})'.format(page_unix_name, req.status_code))
 		for item in soup.head.find_all('script'):
 			text = item.text
 			pos = text.find("WIKIREQUEST.info.pageId = ")
@@ -166,6 +182,8 @@ class Wikidot:
 
 	# Raw version
 	def get_revisions_raw(self, page_id, limit):
+		if not page_id:
+			raise ValueError('A page ID is required to fetch revisions')
 		res = self.query({
 		  'moduleName': 'history/PageRevisionListModule',
 		  'page_id': page_id,
@@ -173,7 +191,7 @@ class Wikidot:
 		  'perpage': limit if limit else '10000',
 		  'options': '{"all":true}'
 		})
-		
+
 		soup = BeautifulSoup(res, 'html.parser')
 		return soup.table.contents
 
@@ -199,7 +217,7 @@ class Wikidot:
 			user_span = tr.find("span", attrs={"class": "printuser"})
 			for last_a in user_span.find_all('a'): pass
 			rev_user = last_a.getText() if last_a else None
-			
+
 
 			# Comment is in the last TD of the row
 			last_td = None
@@ -229,7 +247,7 @@ class Wikidot:
 		# - random real linebreaks (have to be ignored)
 		soup = BeautifulSoup(res, 'html.parser')
 		return soup.div.getText().lstrip(' \r\n')
-	
+
 	# Retrieves the rendered version + additional info unavailable in get_revision_source:
 	# * Title
 	# * Unixname at the time
@@ -239,7 +257,7 @@ class Wikidot:
 		  'revision_id': rev_id,
 		})
 		return res
-	
+
 	def get_revision_version(self, rev_id):
 		res = self.get_revision_version_raw(rev_id) # this has title!
 		soup = BeautifulSoup(res[0], 'html.parser')

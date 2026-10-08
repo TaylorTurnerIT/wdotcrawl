@@ -84,7 +84,7 @@ class RepoMaintainer:
     def _get_page_id_cached(self, page_name):
         """Get page ID from cache, fetching from Wikidot only if missing."""
         cache = self._load_page_ids()
-        if page_name in cache:
+        if cache.get(page_name):
             return cache[page_name]
         page_id = self.wd.get_page_id(page_name)
         if page_id:
@@ -133,7 +133,13 @@ class RepoMaintainer:
                 print("Querying page: " + page)
                 page_id = self._get_page_id_cached(page)
                 print("ID: " + str(page_id))
-                revs = self.wd.get_revisions(page_id, depth)
+                if not page_id:
+                    print("[WARN] Skipping page {!r}: no page ID (missing or deleted).".format(page))
+                    continue
+                try:
+                    revs = self.wd.get_revisions(page_id, depth)
+                except wikidot.WikidotError as exc:
+                    raise wikidot.WikidotError("Page {!r}: {}".format(page, exc)) from exc
                 new_revs = [r for r in revs if r["date"] > since_time]
                 if new_revs:
                     pages_with_changes += 1
